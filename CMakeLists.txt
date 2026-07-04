@@ -20,6 +20,8 @@ if(NOT Eigen3_FOUND)
     endif()
 endif()
 
+find_package(Threads REQUIRED)
+
 option(BUILD_TESTING "Build testing" ON)
 if(BUILD_TESTING)
     find_package(GTest REQUIRED CONFIG)
@@ -43,7 +45,7 @@ set(PlaneGCS_SRCS
 add_library(PlaneGcsStatic STATIC ${PlaneGCS_SRCS})
 set_target_properties(PlaneGcsStatic PROPERTIES OUTPUT_NAME planegcs_static)
 target_include_directories(PlaneGcsStatic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(PlaneGcsStatic PUBLIC Eigen3::Eigen)
+target_link_libraries(PlaneGcsStatic PUBLIC Eigen3::Eigen Threads::Threads)
 
 # Unit tests
 if(BUILD_TESTING)
