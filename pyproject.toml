@@ -21,3 +21,6 @@ classifiers = [
 cmake.args = ["-DBUILD_TESTING=OFF"]
 cmake.build-type = "Release"
 sdist.exclude = ["build", "vcpkg_installed"]
+
+[tool.cibuildwheel]
+skip = ["pp*", "cp36-*", "cp37-*"]
