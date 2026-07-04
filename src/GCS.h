@@ -24,8 +24,7 @@
 #define PLANEGCS_GCS_H
 
 #include "SubSystem.h"
-#include <boost/concept_check.hpp>
-#include <boost/graph/graph_concepts.hpp>
+#include <functional>
 
 #include <Eigen/QR>
 
@@ -95,8 +94,8 @@ namespace GCS
 
     class System
     {
-    // This is the main class. It holds all constraints and information
-    // about partitioning into subsystems and solution strategies
+    public:
+        using LogCallback = std::function<void(const std::string&)>;
     private:
         VEC_pD plist; // list of the unknown parameters
         VEC_pD pdrivenlist; // list of parameters of driven constraints
@@ -108,11 +107,11 @@ namespace GCS
         // GCS ignores from a type point
         std::vector< std::vector<double *> > pDependentParametersGroups;
 
-        std::vector<Constraint *> clist;
+        std::vector<std::unique_ptr<Constraint>> clist;
         std::map<Constraint *,VEC_pD > c2p; // constraint to parameter adjacency list
         std::map<double *,std::vector<Constraint *> > p2c; // parameter to constraint adjacency list
 
-        std::vector<SubSystem *> subSystems, subSystemsAux;
+        std::vector<std::unique_ptr<SubSystem>> subSystems, subSystemsAux;
         void clearSubSystems();
 
         VEC_D reference;
@@ -218,8 +217,12 @@ namespace GCS
         double DL_tolxRedundant;
         double DL_tolfRedundant;
 
+        LogCallback logCallback;
+        void log(const std::string &msg) const;
+
     public:
         System();
+        void registerLogCallback(LogCallback cb);
         /*System(std::vector<Constraint *> clist_);*/
         ~System();
 
