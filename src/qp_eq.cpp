@@ -61,7 +61,13 @@ int qp_eq(MatrixXd &H, VectorXd &g, MatrixXd &A, VectorXd &c,
         MatrixXd ZTHZ = Z.transpose() * H * Z;
         VectorXd rhs = Z.transpose() * (H * Y * c - g);
 
-        VectorXd y = ZTHZ.colPivHouseholderQr().solve(rhs);
+        LDLT<MatrixXd> ldlt(ZTHZ);
+        VectorXd y;
+        if (ldlt.info() == Eigen::Success) {
+            y = ldlt.solve(rhs);
+        } else {
+            y = ZTHZ.colPivHouseholderQr().solve(rhs);
+        }
 
         x = - Y * c + Z * y;
     }
