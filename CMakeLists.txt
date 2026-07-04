@@ -58,7 +58,19 @@ endif()
 # Python Bindings
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 if(BUILD_PYTHON_BINDINGS)
-    find_package(pybind11 REQUIRED CONFIG)
+    find_package(pybind11 CONFIG QUIET)
+    if(NOT pybind11_FOUND)
+        if(NOT PYTHON_EXECUTABLE)
+            set(PYTHON_EXECUTABLE "python3")
+        endif()
+        execute_process(
+            COMMAND "${PYTHON_EXECUTABLE}" -c "import pybind11; print(pybind11.get_cmake_dir())"
+            OUTPUT_VARIABLE pybind11_DIR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        find_package(pybind11 REQUIRED CONFIG PATHS ${pybind11_DIR} NO_DEFAULT_PATH)
+    endif()
     pybind11_add_module(planegcs_py python/bindings.cpp)
     set_target_properties(planegcs_py PROPERTIES OUTPUT_NAME planegcs)
     target_link_libraries(planegcs_py PRIVATE PlaneGcsStatic)
