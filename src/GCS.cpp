@@ -98,8 +98,7 @@
 //#include <FCConfig.h>
 //#include <Base/Console.h>
 
-#include <boost/graph/adjacency_list.hpp>
-#include <boost/graph/connected_components.hpp>
+// Graph headers removed
 
 typedef Eigen::FullPivHouseholderQR<Eigen::MatrixXd>::IntDiagSizeVectorType MatrixIndexType;
 
@@ -410,7 +409,51 @@ void SolverReportingManager::LogMatrix(const std::string str, MatrixIndexType ma
 #endif
 
 
-typedef boost::adjacency_list <boost::vecS, boost::vecS, boost::undirectedS> Graph;
+struct Graph {
+    std::vector<std::vector<int>> adj;
+};
+
+static void add_vertex(Graph& g) {
+    g.adj.emplace_back();
+}
+
+static void add_edge(int u, int v, Graph& g) {
+    if (u >= int(g.adj.size())) g.adj.resize(u + 1);
+    if (v >= int(g.adj.size())) g.adj.resize(v + 1);
+    g.adj[u].push_back(v);
+    g.adj[v].push_back(u);
+}
+
+static size_t num_vertices(const Graph& g) {
+    return g.adj.size();
+}
+
+static int connected_components(const Graph& g, int* components) {
+    int n = g.adj.size();
+    std::fill(components, components + n, -1);
+    int component_count = 0;
+    
+    std::vector<int> stack;
+    for (int i = 0; i < n; ++i) {
+        if (components[i] == -1) {
+            stack.clear();
+            stack.push_back(i);
+            components[i] = component_count;
+            while (!stack.empty()) {
+                int curr = stack.back();
+                stack.pop_back();
+                for (int neighbor : g.adj[curr]) {
+                    if (components[neighbor] == -1) {
+                        components[neighbor] = component_count;
+                        stack.push_back(neighbor);
+                    }
+                }
+            }
+            component_count++;
+        }
+    }
+    return component_count;
+}
 
 ///////////////////////////////////////
 // Solver
@@ -421,11 +464,8 @@ System::System()
   : plist(0)
   , pdrivenlist(0)
   , pDependentParameters(0)
-  , clist(0)
   , c2p()
   , p2c()
-  , subSystems(0)
-  , subSystemsAux(0)
   , reference(0)
   , dofs(0)
   , hasUnknowns(false)
@@ -557,7 +597,7 @@ void System::clear()
 
     reference.clear();
     clearSubSystems();
-    free(clist);
+    clist.clear();
     c2p.clear();
     p2c.clear();
 }
@@ -572,13 +612,11 @@ void System::invalidatedDiagnosis()
 void System::clearByTag(int tagId)
 {
     std::vector<Constraint *> constrvec;
-    for (std::vector<Constraint *>::const_iterator
-         constr=clist.begin(); constr != clist.end(); ++constr) {
+    for (auto constr=clist.begin(); constr != clist.end(); ++constr) {
         if ((*constr)->getTag() == tagId)
-            constrvec.push_back(*constr);
+            constrvec.push_back(constr->get());
     }
-    for (std::vector<Constraint *>::const_iterator
-         constr=constrvec.begin(); constr != constrvec.end(); ++constr) {
+    for (auto constr=constrvec.begin(); constr != constrvec.end(); ++constr) {
         removeConstraint(*constr);
     }
 }
@@ -589,7 +627,7 @@ int System::addConstraint(Constraint *constr)
     if (constr->getTag() >= 0) // negatively tagged constraints have no impact
         hasDiagnosis = false;  // on the diagnosis
 
-    clist.push_back(constr);
+    clist.push_back(std::unique_ptr<Constraint>(constr));
     VEC_pD constr_params = constr->params();
     for (VEC_pD::const_iterator param=constr_params.begin();
          param != constr_params.end(); ++param) {
@@ -602,12 +640,12 @@ int System::addConstraint(Constraint *constr)
 
 void System::removeConstraint(Constraint *constr)
 {
-    std::vector<Constraint *>::iterator it;
-    it = std::find(clist.begin(), clist.end(), constr);
+    auto it = std::find_if(clist.begin(), clist.end(), [constr](const std::unique_ptr<Constraint>& p) {
+        return p.get() == constr;
+    });
     if (it == clist.end())
         return;
 
-    clist.erase(it);
     if (constr->getTag() >= 0)
         hasDiagnosis = false;
     clearSubSystems();
@@ -616,14 +654,13 @@ void System::removeConstraint(Constraint *constr)
     for (VEC_pD::const_iterator param=constr_params.begin();
          param != constr_params.end(); ++param) {
         std::vector<Constraint *> &constraints = p2c[*param];
-        it = std::find(constraints.begin(), constraints.end(), constr);
-        constraints.erase(it);
+        auto it_p = std::find(constraints.begin(), constraints.end(), constr);
+        if (it_p != constraints.end()) {
+            constraints.erase(it_p);
+        }
     }
     c2p.erase(constr);
-
-    std::vector<Constraint *> constrvec;
-    constrvec.push_back(constr);
-    free(constrvec);
+    clist.erase(it);
 }
 
 // basic constraints
@@ -1337,8 +1374,7 @@ double System::calculateConstraintErrorByTag(int tagId)
     double sqErr = 0.0; //accumulator of squared errors
     double err = 0.0;//last computed signed error value
 
-    for (std::vector<Constraint *>::const_iterator
-         constr=clist.begin(); constr != clist.end(); ++constr) {
+    for (auto constr=clist.begin(); constr != clist.end(); ++constr) {
         if ((*constr)->getTag() == tagId){
             err = (*constr)->error();
             sqErr += err*err;
@@ -1408,18 +1444,22 @@ void System::initSolution(Algorithm alg)
     }
     std::vector<Constraint *> clistR;
     if (redundant.size()) {
-        for (std::vector<Constraint *>::const_iterator constr=clist.begin(); constr != clist.end(); ++constr) {
-            if (redundant.count(*constr) == 0)
-                clistR.push_back(*constr);
+        for (auto constr=clist.begin(); constr != clist.end(); ++constr) {
+            if (redundant.count(constr->get()) == 0)
+                clistR.push_back(constr->get());
         }
     }
-    else
-        clistR = clist;
+    else {
+        clistR.reserve(clist.size());
+        for (auto constr=clist.begin(); constr != clist.end(); ++constr) {
+            clistR.push_back(constr->get());
+        }
+    }
 
     // partitioning into decoupled components
     Graph g;
     for (int i=0; i < int(plist.size() + clistR.size()); i++)
-        boost::add_vertex(g);
+        add_vertex(g);
 
     int cvtid = int(plist.size());
     for (std::vector<Constraint *>::const_iterator constr=clistR.begin();
@@ -1429,14 +1469,14 @@ void System::initSolution(Algorithm alg)
              param != cparams.end(); ++param) {
             MAP_pD_I::const_iterator it = pIndex.find(*param);
             if (it != pIndex.end())
-                boost::add_edge(cvtid, it->second, g);
+                add_edge(cvtid, it->second, g);
         }
     }
 
-    VEC_I components(boost::num_vertices(g));
+    VEC_I components(num_vertices(g));
     int componentsSize = 0;
     if (!components.empty())
-        componentsSize = boost::connected_components(g, &components[0]);
+        componentsSize = connected_components(g, &components[0]);
 
     // identification of equality constraints and parameter reduction
     std::set<Constraint *> reducedConstrs;  // constraints that will be eliminated through reduction
@@ -1499,12 +1539,12 @@ void System::initSolution(Algorithm alg)
                 clist1.push_back(*constr);
         }
 
-        subSystems.push_back(NULL);
-        subSystemsAux.push_back(NULL);
+        subSystems.push_back(nullptr);
+        subSystemsAux.push_back(nullptr);
         if (clist0.size() > 0)
-            subSystems[cid] = new SubSystem(clist0, plists[cid], reductionmaps[cid]);
+            subSystems[cid] = std::make_unique<SubSystem>(clist0, plists[cid], reductionmaps[cid]);
         if (clist1.size() > 0)
-            subSystemsAux[cid] = new SubSystem(clist1, plists[cid], reductionmaps[cid]);
+            subSystemsAux[cid] = std::make_unique<SubSystem>(clist1, plists[cid], reductionmaps[cid]);
     }
 
     isInit = true;
@@ -1551,11 +1591,11 @@ int System::solve(bool isFine, Algorithm alg, bool isRedundantsolving)
              isReset = true;
         }
         if (subSystems[cid] && subSystemsAux[cid])
-            res = std::max(res, solve(subSystems[cid], subSystemsAux[cid], isFine, isRedundantsolving));
+            res = std::max(res, solve(subSystems[cid].get(), subSystemsAux[cid].get(), isFine, isRedundantsolving));
         else if (subSystems[cid])
-            res = std::max(res, solve(subSystems[cid], isFine, alg, isRedundantsolving));
+            res = std::max(res, solve(subSystems[cid].get(), isFine, alg, isRedundantsolving));
         else if (subSystemsAux[cid])
-            res = std::max(res, solve(subSystemsAux[cid], isFine, alg, isRedundantsolving));
+            res = std::max(res, solve(subSystemsAux[cid].get(), isFine, alg, isRedundantsolving));
     }
     if (res == Success) {
         for (std::set<Constraint *>::const_iterator constr=redundant.begin();
@@ -3818,7 +3858,7 @@ void System::makeReducedJacobian(Eigen::MatrixXd &J,
 
     int jacobianconstraintcount=0;
     int allcount=0;
-    for (std::vector<Constraint *>::iterator constr=clist.begin(); constr != clist.end(); ++constr) {
+    for (auto constr=clist.begin(); constr != clist.end(); ++constr) {
         (*constr)->revertParams();
         ++allcount;
         if ((*constr)->getTag() >= 0 && (*constr)->isDriving()) {
@@ -4421,12 +4461,12 @@ void System::identifyConflictingRedundantConstraints(   Algorithm alg,
             if (fabs(R(row,j)) > 1e-10) {
                 int origCol = qrJT.colsPermutation().indices()[row];
 
-                conflictGroups[j-rank].push_back(clist[jacobianconstraintmap.at(origCol)]);
+                conflictGroups[j-rank].push_back(clist[jacobianconstraintmap.at(origCol)].get());
             }
         }
         int origCol = qrJT.colsPermutation().indices()[j];
 
-        conflictGroups[j-rank].push_back(clist[jacobianconstraintmap.at(origCol)]);
+        conflictGroups[j-rank].push_back(clist[jacobianconstraintmap.at(origCol)].get());
     }
 
     // Augment the information regarding the group of constraints that are conflicting or redundant.
@@ -4480,10 +4520,10 @@ void System::identifyConflictingRedundantConstraints(   Algorithm alg,
 
     std::vector<Constraint *> clistTmp;
     clistTmp.reserve(clist.size());
-    for (std::vector<Constraint *>::iterator constr=clist.begin();
+    for (auto constr=clist.begin();
         constr != clist.end(); ++constr) {
-        if ((*constr)->isDriving() && skipped.count(*constr) == 0)
-            clistTmp.push_back(*constr);
+        if ((*constr)->isDriving() && skipped.count(constr->get()) == 0)
+            clistTmp.push_back(constr->get());
     }
 
     SubSystem *subSysTmp = new SubSystem(clistTmp, pdiagnoselist);
@@ -4561,9 +4601,9 @@ void System::identifyConflictingRedundantConstraints(   Algorithm alg,
             constr != redundant.end(); ++constr)
         redundantTagsSet.insert((*constr)->getTag());
     // remove tags represented at least in one non-redundant constraint
-    for (std::vector<Constraint *>::iterator constr=clist.begin();
+    for (auto constr=clist.begin();
         constr != clist.end(); ++constr) {
-        if (redundant.count(*constr) == 0)
+        if (redundant.count(constr->get()) == 0)
             redundantTagsSet.erase((*constr)->getTag());
     }
     redundantTags.resize(redundantTagsSet.size());
@@ -4577,8 +4617,6 @@ void System::identifyConflictingRedundantConstraints(   Algorithm alg,
 void System::clearSubSystems()
 {
     isInit = false;
-    free(subSystems);
-    free(subSystemsAux);
     subSystems.clear();
     subSystemsAux.clear();
 }

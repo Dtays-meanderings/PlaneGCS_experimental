@@ -25,7 +25,7 @@
 
 #include "Geo.h"
 #include "Util.h"
-#include <boost/graph/graph_concepts.hpp>
+// Boost headers removed
 
 //#define _GCS_EXTRACT_SOLVER_SUBSYSTEM_ // This enables debugging code intended to extract information to file bug reports against Eigen, not for production code
 

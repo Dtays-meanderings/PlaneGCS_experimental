@@ -30,3 +30,11 @@
 *.exe
 *.out
 *.app
+
+# Build and package dirs
+/build/
+/vcpkg_installed/
+/Testing/
+.vs/
+*.pyd
+*.exp

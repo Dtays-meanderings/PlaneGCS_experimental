@@ -24,8 +24,7 @@
 #define PLANEGCS_GCS_H
 
 #include "SubSystem.h"
-#include <boost/concept_check.hpp>
-#include <boost/graph/graph_concepts.hpp>
+// Boost headers removed
 
 #include <Eigen/QR>
 
@@ -108,11 +107,11 @@ namespace GCS
         // GCS ignores from a type point
         std::vector< std::vector<double *> > pDependentParametersGroups;
 
-        std::vector<Constraint *> clist;
+        std::vector<std::unique_ptr<Constraint>> clist;
         std::map<Constraint *,VEC_pD > c2p; // constraint to parameter adjacency list
         std::map<double *,std::vector<Constraint *> > p2c; // parameter to constraint adjacency list
 
-        std::vector<SubSystem *> subSystems, subSystemsAux;
+        std::vector<std::unique_ptr<SubSystem>> subSystems, subSystemsAux;
         void clearSubSystems();
 
         VEC_D reference;
