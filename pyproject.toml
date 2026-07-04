@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core>=0.8.0", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "planegcs"
+version = "1.0.0"
+description = "PlaneGCS 2D Geometric Constraint Solver CPython Bindings"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "GCS Developers" }
+]
+classifiers = [
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)"
+]
+
+[tool.scikit-build]
+cmake.args = ["-DBUILD_TESTING=OFF"]
+cmake.build-type = "Release"
+sdist.exclude = ["build", "vcpkg_installed"]
