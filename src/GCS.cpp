@@ -494,12 +494,27 @@ System::System()
   , DL_tolgRedundant(1E-80)
   , DL_tolxRedundant(1E-80)
   , DL_tolfRedundant(1E-10)
+  , logCallback(nullptr)
 {
     // currently Eigen only supports multithreading for multiplications
     // There is no appreciable gain from using more threads
 #ifdef EIGEN_SPARSEQR_COMPATIBLE
     Eigen::setNbThreads(1);
 #endif
+}
+
+void System::registerLogCallback(LogCallback cb)
+{
+    logCallback = cb;
+}
+
+void System::log(const std::string &msg) const
+{
+    if (logCallback) {
+        logCallback(msg);
+    } else if (debugMode != NoDebug) {
+        std::cout << msg << std::flush;
+    }
 }
 
 /*DeepSOIC: seriously outdated, needs redesign
@@ -1581,21 +1596,31 @@ int System::solve(bool isFine, Algorithm alg, bool isRedundantsolving)
     if (!isInit)
         return Failed;
 
-    bool isReset = false;
-    // return success by default in order to permit coincidence constraints to be applied
-    // even if no other system has to be solved
+    log("System::solve: Solving " + std::to_string(subSystems.size()) + " subsystems in parallel\n");
+
+    if (!subSystems.empty()) {
+        resetToReference();
+    }
+
     int res = Success;
-    for (int cid=0; cid < int(subSystems.size()); cid++) {
-        if ((subSystems[cid] || subSystemsAux[cid]) && !isReset) {
-             resetToReference();
-             isReset = true;
-        }
-        if (subSystems[cid] && subSystemsAux[cid])
-            res = std::max(res, solve(subSystems[cid].get(), subSystemsAux[cid].get(), isFine, isRedundantsolving));
-        else if (subSystems[cid])
-            res = std::max(res, solve(subSystems[cid].get(), isFine, alg, isRedundantsolving));
-        else if (subSystemsAux[cid])
-            res = std::max(res, solve(subSystemsAux[cid].get(), isFine, alg, isRedundantsolving));
+    std::vector<std::future<int>> futures;
+    futures.reserve(subSystems.size());
+
+    for (int cid = 0; cid < int(subSystems.size()); cid++) {
+        futures.push_back(std::async(std::launch::async, [this, cid, isFine, alg, isRedundantsolving]() {
+            int local_res = Success;
+            if (subSystems[cid] && subSystemsAux[cid])
+                local_res = solve(subSystems[cid].get(), subSystemsAux[cid].get(), isFine, isRedundantsolving);
+            else if (subSystems[cid])
+                local_res = solve(subSystems[cid].get(), isFine, alg, isRedundantsolving);
+            else if (subSystemsAux[cid])
+                local_res = solve(subSystemsAux[cid].get(), isFine, alg, isRedundantsolving);
+            return local_res;
+        }));
+    }
+
+    for (auto &f : futures) {
+        res = std::max(res, f.get());
     }
     if (res == Success) {
         for (std::set<Constraint *>::const_iterator constr=redundant.begin();

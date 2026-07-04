@@ -24,7 +24,7 @@
 #define PLANEGCS_GCS_H
 
 #include "SubSystem.h"
-// Boost headers removed
+#include <functional>
 
 #include <Eigen/QR>
 
@@ -94,8 +94,8 @@ namespace GCS
 
     class System
     {
-    // This is the main class. It holds all constraints and information
-    // about partitioning into subsystems and solution strategies
+    public:
+        using LogCallback = std::function<void(const std::string&)>;
     private:
         VEC_pD plist; // list of the unknown parameters
         VEC_pD pdrivenlist; // list of parameters of driven constraints
@@ -217,8 +217,12 @@ namespace GCS
         double DL_tolxRedundant;
         double DL_tolfRedundant;
 
+        LogCallback logCallback;
+        void log(const std::string &msg) const;
+
     public:
         System();
+        void registerLogCallback(LogCallback cb);
         /*System(std::vector<Constraint *> clist_);*/
         ~System();
 

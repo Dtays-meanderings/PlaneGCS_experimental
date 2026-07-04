@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/functional.h>
 #include "GCS.h"
 #include "Geo.h"
 
@@ -164,5 +165,6 @@ PYBIND11_MODULE(planegcs, m) {
         .def("solve", [](GCS::System &self, bool isFine, GCS::Algorithm alg, bool isRedundantsolving) {
             return self.solve(isFine, alg, isRedundantsolving);
         }, py::arg("isFine") = true, py::arg("alg") = GCS::Algorithm::DogLeg, py::arg("isRedundantsolving") = false)
-        .def("applySolution", &GCS::System::applySolution);
+        .def("applySolution", &GCS::System::applySolution)
+        .def("registerLogCallback", &GCS::System::registerLogCallback, py::arg("cb"));
 }
